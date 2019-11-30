@@ -612,6 +612,11 @@ Changes take effect only when a new session is started."
                                         (ess-r-mode . "r"))
   "Language id configuration.")
 
+(defvar lsp--last-active-workspaces nil
+  "Keep track of last active workspace.
+We want to try the last workspace first when jumping into library
+a library directory")
+
 (defvar lsp-method-requirements
   '(("textDocument/onTypeFormatting" :capability "documentOnTypeFormattingProvider")
     ("workspace/executeCommand"
@@ -1104,6 +1109,15 @@ to the beginning and ending points in the range correspondingly."
            (not (region-active-p)))
       (cons start end))
      (parent (lsp--find-wrapping-range parent)))))
+
+(defun lsp--focus-buffer (&rest args)
+  "Focus buffer handler.
+
+Remember the last active workspace set so that we can try that first
+when opening a file in a library directory."
+  (when (lsp-workspaces)
+    (setq lsp--last-active-workspaces (lsp-workspaces))))
+(advice-add #'select-window :after #'lsp--focus-buffer)
 
 (defun lsp--get-selection-range ()
   (or
@@ -6057,6 +6071,8 @@ Returns nil if the project should not be added to the current SESSION."
 The library folders are defined by each client for each of the active workspace."
   (when-let (workspace (->> (lsp-session)
                             (lsp--session-workspaces)
+                            (-sort (lambda (a b)
+                                      (seq-contains lsp--last-active-workspaces a)))
                             (--first
                              (and (-contains? (-> it lsp--workspace-client lsp--client-major-modes)
                                               major-mode)
@@ -6183,7 +6199,8 @@ argument ask the user to select which language server to start. "
 
     (lsp--info "Connected to %s."
                (apply 'concat (--map (format "[%s]" (lsp--workspace-print it))
-                                     lsp--buffer-workspaces)))))
+                                     lsp--buffer-workspaces)))
+    (lsp--focus-buffer)))
 
 (defun lsp--init-if-visible ()
   "Run `lsp' for the current buffer if the buffer is visible.
